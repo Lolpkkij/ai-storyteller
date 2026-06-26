@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.cache/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Expo / React Native
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+android/
+ios/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Lock files (pnpm manages this)
+package-lock.json
+yarn.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Replit internals
+.replit
+replit.nix
+.local/
+.upm/
