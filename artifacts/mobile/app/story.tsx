@@ -171,6 +171,7 @@ function MessageBubble({
 }
 
 function nameHash(name: string): number {
+  if (!name) return 0;
   return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
 }
 
@@ -305,7 +306,7 @@ function StoryMapModal({
   const botPad = Platform.OS === "web" ? 34 : insets.bottom;
   const events = useMemo(() => parseEvents(memory.events), [memory.events]);
   const portrait = useMemo(
-    () => settings ? generatePortrait({ name: settings.heroName, genre: settings.genre, tone: settings.tone, setting: settings.setting }) : null,
+    () => settings ? generatePortrait({ name: settings.name, genre: settings.genre, tone: settings.tone, setting: settings.setting }) : null,
     [settings]
   );
 
