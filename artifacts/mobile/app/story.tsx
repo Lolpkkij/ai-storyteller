@@ -4,7 +4,6 @@ import { useColors } from "@/hooks/useColors";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -414,7 +413,7 @@ function StoryMapModal({
               <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                 <Text style={{ fontSize: 18 }}>{portrait.aura}</Text>
                 <Text style={{ fontFamily: "Inter_700Bold", fontSize: 18, color: colors.foreground }}>
-                  {settings.heroName}
+                  {settings.name}
                 </Text>
                 <Text style={{ fontSize: 18 }}>{portrait.aura}</Text>
               </View>
@@ -941,7 +940,6 @@ function MemoryModal({
 export default function StoryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const {
     settings,
     messages,
@@ -951,7 +949,6 @@ export default function StoryScreen() {
     sendMessage,
     sendHiddenMessage,
     startNewStory,
-    resetToSetup,
     updateMemoryFile,
     clearMemoryFile,
   } = useStory();
