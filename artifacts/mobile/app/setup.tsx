@@ -129,7 +129,7 @@ export default function SetupScreen() {
     };
     await saveSettings(finalSettings);
     router.replace("/story");
-    setTimeout(() => startNewStory(), 300);
+    setTimeout(() => startNewStory(), 600);
   };
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
