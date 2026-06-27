@@ -50,6 +50,7 @@ interface StoryContextType {
   memory: Memory;
   saveSettings: (s: StorySettings) => Promise<void>;
   sendMessage: (userInput: string, base?: Message[]) => Promise<void>;
+  sendHiddenMessage: (prompt: string) => Promise<void>;
   startNewStory: () => Promise<void>;
   resetToSetup: () => Promise<void>;
   updateMemoryFile: (key: MemoryKey, content: string) => Promise<void>;
@@ -256,6 +257,78 @@ export function StoryProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const sendHiddenMessage = async (prompt: string) => {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings || isStreaming) return;
+
+    const history = messagesRef.current;
+    setIsStreaming(true);
+    setStreamingText("");
+
+    const trimmed = [...history, { role: "user", content: prompt }].slice(-MAX_HISTORY);
+    const domain = process.env["EXPO_PUBLIC_DOMAIN"];
+    const url = `https://${domain}/api/story/stream`;
+    let accumulated = "";
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: trimmed.map((m) => ({ role: m.role, content: m.content })),
+          settings: currentSettings,
+          memory: memoryRef.current,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (!data) continue;
+          try {
+            const parsed = JSON.parse(data) as { content?: string; done?: boolean; error?: string };
+            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.done) break;
+            if (parsed.content) {
+              accumulated += parsed.content;
+              setStreamingText(accumulated);
+            }
+          } catch (e) {
+            const err = e as Error;
+            if (err.message && err.message !== "Unexpected end of JSON input") throw err;
+          }
+        }
+      }
+
+      const assistantMsg: Message = { id: genId(), role: "assistant", content: accumulated };
+      await persistMessages([...history, assistantMsg]);
+      updateMemoryInBackground(accumulated);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      const errMsg: Message = {
+        id: genId(),
+        role: "assistant",
+        content: `The ancient tome goes silent...\n\n*${msg}*\n\nTry again.`,
+      };
+      await persistMessages([...history, errMsg]);
+    } finally {
+      setIsStreaming(false);
+      setStreamingText("");
+    }
+  };
+
   const startNewStory = async () => {
     const currentSettings = settingsRef.current;
     if (!currentSettings) return;
@@ -304,6 +377,7 @@ export function StoryProvider({ children }: { children: React.ReactNode }) {
         memory,
         saveSettings,
         sendMessage,
+        sendHiddenMessage,
         startNewStory,
         resetToSetup,
         updateMemoryFile,
