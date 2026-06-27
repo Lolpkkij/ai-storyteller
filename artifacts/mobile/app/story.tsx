@@ -2,13 +2,13 @@ import { extractChoices, useStory } from "@/context/StoryContext";
 import type { Memory, MemoryKey, Message } from "@/context/StoryContext";
 import { useColors } from "@/hooks/useColors";
 import { Feather } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -170,47 +170,84 @@ function MessageBubble({
   );
 }
 
-const API_BASE = `https://${process.env["EXPO_PUBLIC_DOMAIN"]}/api`;
+const RANDOM_EVENT_PROMPT =
+  "Throw an unexpected random event into the story right now. Make it surprising and " +
+  "dramatic but consistent with the world and characters in the memory files. Do not warn " +
+  "the player it is coming. Just make it happen naturally in the next story beat. End with " +
+  "3 new choices as usual.";
 
-function SourceCodeModal({
+const EVENT_EMOJI_MAP: { keywords: string[]; emoji: string }[] = [
+  { keywords: ["death", "dead", "die", "died", "kill", "killed", "murder", "slain", "corpse"], emoji: "💀" },
+  { keywords: ["battle", "fight", "attack", "combat", "war", "clash", "sword", "duel", "assault"], emoji: "⚔️" },
+  { keywords: ["alliance", "ally", "friend", "join", "agree", "pact", "trust", "unite", "bond"], emoji: "🤝" },
+  { keywords: ["discover", "found", "find", "reveal", "secret", "hidden", "uncover", "learn", "realize"], emoji: "🔍" },
+  { keywords: ["love", "romance", "kiss", "heart", "feeling", "attraction", "affection"], emoji: "❤️" },
+  { keywords: ["arrive", "reach", "enter", "location", "town", "city", "castle", "forest", "cave", "temple", "village"], emoji: "🚪" },
+  { keywords: ["item", "weapon", "armor", "treasure", "gold", "artifact", "relic", "obtain", "pick up", "found a"], emoji: "🎁" },
+  { keywords: ["mystery", "strange", "weird", "unknown", "shadow", "figure", "vision", "omen", "curse"], emoji: "👁️" },
+  { keywords: ["explosion", "blast", "fire", "burn", "destroy", "explode", "flame", "inferno"], emoji: "💥" },
+  { keywords: ["escape", "run", "flee", "chase", "retreat", "evade", "pursue", "fled"], emoji: "🏃" },
+  { keywords: ["power", "throne", "king", "queen", "rule", "command", "control", "crown", "lord"], emoji: "👑" },
+  { keywords: ["fail", "betray", "sacrifice", "dark", "despair", "grieve", "mourn", "shadow", "doom"], emoji: "🌧️" },
+];
+
+function getEventEmoji(text: string): string {
+  const lower = text.toLowerCase();
+  for (const { keywords, emoji } of EVENT_EMOJI_MAP) {
+    if (keywords.some((kw) => lower.includes(kw))) return emoji;
+  }
+  return "📖";
+}
+
+interface ParsedEvent {
+  num: number;
+  title: string;
+  description: string;
+  emoji: string;
+}
+
+function parseEvents(eventsText: string): ParsedEvent[] {
+  if (!eventsText.trim()) return [];
+  const lines = eventsText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const events: ParsedEvent[] = [];
+  let num = 0;
+  for (const line of lines) {
+    const cleaned = line.replace(/^[-•*]\s*/, "").replace(/^\d+\.\s*/, "").trim();
+    if (!cleaned) continue;
+    num++;
+    const words = cleaned.split(/\s+/);
+    const titleWords = words.slice(0, 6).join(" ");
+    const title = titleWords.length < cleaned.length ? titleWords + "…" : titleWords;
+    events.push({ num, title, description: cleaned, emoji: getEventEmoji(cleaned) });
+  }
+  return events;
+}
+
+function StoryMapModal({
   visible,
   onClose,
+  onRandomEvent,
+  memory,
   colors,
   insets,
 }: {
   visible: boolean;
   onClose: () => void;
+  onRandomEvent: () => void;
+  memory: Memory;
   colors: ReturnType<typeof useColors>;
   insets: { top: number; bottom: number };
 }) {
-  const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const botPad = Platform.OS === "web" ? 34 : insets.bottom;
+  const events = useMemo(() => parseEvents(memory.events), [memory.events]);
 
   useEffect(() => {
-    if (!visible) return;
-    setLoading(true);
-    setCode("");
-    fetch(`${API_BASE}/source-code`)
-      .then((r) => r.json())
-      .then((data: { code: string }) => setCode(data.code ?? ""))
-      .catch(() => setCode("// Failed to load source code."))
-      .finally(() => setLoading(false));
-  }, [visible]);
-
-  const handleCopy = async () => {
-    if (!code) return;
-    try {
-      await Clipboard.setStringAsync(code);
-      setCopied(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setTimeout(() => setCopied(false), 2500);
-    } catch {
-      Alert.alert("Copy failed", "Please manually select the text to copy.");
+    if (visible && events.length > 0) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
     }
-  };
+  }, [visible, events.length]);
 
   return (
     <Modal visible={visible} animationType="slide" transparent={false}>
@@ -219,99 +256,161 @@ function SourceCodeModal({
 
         <View
           style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
             paddingTop: topPad + 8,
             paddingBottom: 12,
             paddingHorizontal: 16,
             borderBottomWidth: 1,
             borderBottomColor: colors.border,
-            gap: 10,
+            gap: 8,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-            <Text style={{ fontFamily: "Inter_700Bold", fontSize: 17, color: colors.primary }}>
-              &lt;/&gt; Source Code
-            </Text>
-            <Pressable
-              onPress={onClose}
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: 17,
-                backgroundColor: colors.secondary,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Feather name="x" size={16} color={colors.foreground} />
-            </Pressable>
-          </View>
+          <Text style={{ fontFamily: "Inter_700Bold", fontSize: 17, color: colors.primary, flex: 1 }}>
+            🗺️ Story Map
+          </Text>
 
-          <Pressable onPress={handleCopy} disabled={loading || !code}>
-            <LinearGradient
-              colors={loading || !code ? [colors.secondary, colors.secondary] : ["#D4A820", "#8B6914"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{
-                borderRadius: 10,
-                paddingVertical: 11,
-                alignItems: "center",
-                flexDirection: "row",
-                justifyContent: "center",
-                gap: 8,
-              }}
-            >
-              <Feather
-                name={copied ? "check" : "clipboard"}
-                size={15}
-                color={loading || !code ? colors.mutedForeground : colors.primaryForeground}
-              />
-              <Text
-                style={{
-                  fontFamily: "Inter_700Bold",
-                  fontSize: 15,
-                  color: loading || !code ? colors.mutedForeground : colors.primaryForeground,
-                }}
-              >
-                {copied ? "Copied!" : "📋 Copy All"}
-              </Text>
-            </LinearGradient>
+          <Pressable
+            onPress={onRandomEvent}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              backgroundColor: pressed ? "#3a2a00" : "#2a1f00",
+              borderRadius: 10,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderWidth: 1,
+              borderColor: colors.primary,
+            })}
+          >
+            <Text style={{ fontSize: 14 }}>🎲</Text>
+            <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 13, color: colors.primary }}>
+              Random Event
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={onClose}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              backgroundColor: colors.secondary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Feather name="x" size={16} color={colors.foreground} />
           </Pressable>
         </View>
 
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1 }}
-          contentContainerStyle={{ padding: 16, paddingBottom: botPad + 20 }}
-          showsVerticalScrollIndicator
+          contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
+          showsVerticalScrollIndicator={false}
         >
-          {loading ? (
-            <Text
-              style={{
-                fontFamily: "Inter_400Regular",
-                fontSize: 13,
-                color: colors.mutedForeground,
-                textAlign: "center",
-                marginTop: 60,
-              }}
-            >
-              Loading source code…
-            </Text>
+          {events.length === 0 ? (
+            <View style={{ alignItems: "center", marginTop: 60 }}>
+              <Text style={{ fontSize: 40, marginBottom: 16 }}>🗺️</Text>
+              <Text
+                style={{
+                  fontFamily: "Inter_400Regular",
+                  fontSize: 14,
+                  color: colors.mutedForeground,
+                  textAlign: "center",
+                  lineHeight: 22,
+                }}
+              >
+                Your story map is empty.{"\n"}Start adventuring!
+              </Text>
+            </View>
           ) : (
-            <Text
-              selectable
-              style={{
-                fontFamily: Platform.OS === "ios" ? "Courier New" : "monospace",
-                fontSize: 11,
-                color: "#C8E6A0",
-                lineHeight: 18,
-                backgroundColor: "#0A0A18",
-                padding: 14,
-                borderRadius: 8,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-            >
-              {code}
-            </Text>
+            <View>
+              {events.map((ev, i) => (
+                <View key={i} style={{ flexDirection: "row", marginBottom: 20 }}>
+                  <View style={{ width: 32, alignItems: "center" }}>
+                    <View
+                      style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 7,
+                        backgroundColor: colors.primary,
+                        borderWidth: 2,
+                        borderColor: "#D4A820",
+                        shadowColor: colors.primary,
+                        shadowOpacity: 0.8,
+                        shadowRadius: 6,
+                        shadowOffset: { width: 0, height: 0 },
+                        zIndex: 1,
+                      }}
+                    />
+                    {i < events.length - 1 && (
+                      <View
+                        style={{
+                          width: 2,
+                          flex: 1,
+                          backgroundColor: colors.border,
+                          marginTop: 4,
+                        }}
+                      />
+                    )}
+                  </View>
+
+                  <View
+                    style={{
+                      flex: 1,
+                      marginLeft: 12,
+                      backgroundColor: colors.card,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      padding: 14,
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <Text style={{ fontSize: 18 }}>{ev.emoji}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            fontFamily: "Inter_400Regular",
+                            fontSize: 10,
+                            color: colors.mutedForeground,
+                            textTransform: "uppercase",
+                            letterSpacing: 1,
+                          }}
+                        >
+                          Event {ev.num}
+                        </Text>
+                        <Text
+                          style={{
+                            fontFamily: "Inter_700Bold",
+                            fontSize: 13,
+                            color: colors.primary,
+                            lineHeight: 18,
+                          }}
+                          numberOfLines={2}
+                        >
+                          {ev.title}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      style={{
+                        fontFamily: "Inter_400Regular",
+                        fontSize: 13,
+                        color: colors.foreground,
+                        lineHeight: 20,
+                      }}
+                    >
+                      {ev.description}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
           )}
         </ScrollView>
       </View>
@@ -706,6 +805,7 @@ export default function StoryScreen() {
     streamingText,
     memory,
     sendMessage,
+    sendHiddenMessage,
     startNewStory,
     resetToSetup,
     updateMemoryFile,
@@ -713,9 +813,11 @@ export default function StoryScreen() {
   } = useStory();
 
   const [input, setInput] = useState("");
-  const [showScript, setShowScript] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const botPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -763,6 +865,24 @@ export default function StoryScreen() {
         onPress: () => startNewStory(),
       },
     ]);
+  };
+
+  const showToast = () => {
+    setToastVisible(true);
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.delay(1600),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start(() => setToastVisible(false));
+  };
+
+  const handleRandomEvent = () => {
+    setShowMap(false);
+    setTimeout(() => {
+      showToast();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      sendHiddenMessage(RANDOM_EVENT_PROMPT);
+    }, 350);
   };
 
   const s = StyleSheet.create({
@@ -872,10 +992,10 @@ export default function StoryScreen() {
 
       <View style={s.header}>
         <Pressable
-          onPress={() => setShowScript(true)}
+          onPress={() => setShowMap(true)}
           style={({ pressed }) => [s.iconBtn, pressed && { opacity: 0.7 }]}
         >
-          <Feather name="scroll" size={16} color={colors.mutedForeground} />
+          <Feather name="map" size={16} color={colors.mutedForeground} />
         </Pressable>
 
         <View style={{ alignItems: "center" }}>
@@ -988,9 +1108,37 @@ export default function StoryScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      <SourceCodeModal
-        visible={showScript}
-        onClose={() => setShowScript(false)}
+      {toastVisible && (
+        <Animated.View
+          style={{
+            position: "absolute",
+            bottom: botPad + 90,
+            alignSelf: "center",
+            opacity: toastOpacity,
+            backgroundColor: "#1a1200",
+            borderRadius: 24,
+            paddingHorizontal: 20,
+            paddingVertical: 12,
+            borderWidth: 1,
+            borderColor: colors.primary,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            zIndex: 999,
+          }}
+        >
+          <Text style={{ fontSize: 18 }}>🎲</Text>
+          <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 15, color: colors.primary }}>
+            Fate intervenes...
+          </Text>
+        </Animated.View>
+      )}
+
+      <StoryMapModal
+        visible={showMap}
+        onClose={() => setShowMap(false)}
+        onRandomEvent={handleRandomEvent}
+        memory={memory}
         colors={colors}
         insets={insets}
       />
