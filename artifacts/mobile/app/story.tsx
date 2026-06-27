@@ -170,6 +170,66 @@ function MessageBubble({
   );
 }
 
+function nameHash(name: string): number {
+  return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+}
+
+const GENRE_ARCHETYPES: Record<string, string[]> = {
+  fantasy:     ["🧙", "🗡️", "🏹", "🧝", "👑", "🧟"],
+  "sci-fi":    ["🚀", "🤖", "👽", "🛸", "🌌", "⚡"],
+  scifi:       ["🚀", "🤖", "👽", "🛸", "🌌", "⚡"],
+  horror:      ["🧛", "🧟", "👻", "💀", "🕷️", "🌑"],
+  mystery:     ["🕵️", "🔍", "🎩", "🌃", "🗝️", "🕯️"],
+  western:     ["🤠", "🌵", "🐴", "⭐", "🔫", "🦅"],
+  romance:     ["💕", "🌹", "🎭", "❤️", "🌙", "✨"],
+  adventure:   ["🗺️", "⚓", "🧭", "🏴‍☠️", "🌊", "🦁"],
+  thriller:    ["🔫", "🕶️", "💣", "🌆", "🔪", "🚨"],
+  historical:  ["⚔️", "🏰", "🛡️", "👑", "📜", "🗺️"],
+  default:     ["⭐", "🧑", "🌟", "🗡️", "🔮", "🌀"],
+};
+
+const TONE_AURA: Record<string, string> = {
+  epic: "✨", heroic: "⚡", dark: "🌑", grim: "🖤",
+  humorous: "😄", funny: "🎭", gritty: "⛓️", brutal: "🔩",
+  romantic: "🌹", tender: "🌙", suspenseful: "👁️", tense: "❓",
+  mysterious: "🔮", whimsical: "🌈", tragic: "💧", hopeful: "🌅",
+};
+
+const SETTING_BACKDROP: { keywords: string[]; emoji: string }[] = [
+  { keywords: ["forest", "jungle", "wood", "wild"], emoji: "🌲" },
+  { keywords: ["castle", "kingdom", "palace", "throne"], emoji: "🏰" },
+  { keywords: ["space", "star", "galaxy", "cosmos", "ship"], emoji: "🌌" },
+  { keywords: ["city", "urban", "street", "metro"], emoji: "🏙️" },
+  { keywords: ["sea", "ocean", "ship", "port", "island"], emoji: "🌊" },
+  { keywords: ["desert", "sand", "dune", "arid"], emoji: "🌵" },
+  { keywords: ["dungeon", "cave", "underground", "dark"], emoji: "🕯️" },
+  { keywords: ["mountain", "peak", "highland", "cliff"], emoji: "⛰️" },
+  { keywords: ["village", "tavern", "inn", "town"], emoji: "🏘️" },
+  { keywords: ["magic", "enchanted", "realm", "portal"], emoji: "🔮" },
+];
+
+function generatePortrait(settings: { name: string; genre: string; tone: string; setting: string }) {
+  const h = nameHash(settings.name);
+  const genreKey = Object.keys(GENRE_ARCHETYPES).find((k) =>
+    settings.genre.toLowerCase().includes(k)
+  ) ?? "default";
+  const list = GENRE_ARCHETYPES[genreKey];
+  const archetype = list[h % list.length];
+
+  const toneKey = Object.keys(TONE_AURA).find((k) =>
+    settings.tone.toLowerCase().includes(k)
+  );
+  const aura = toneKey ? TONE_AURA[toneKey] : "⭐";
+
+  const settingLower = settings.setting.toLowerCase();
+  const backdropEntry = SETTING_BACKDROP.find(({ keywords }) =>
+    keywords.some((kw) => settingLower.includes(kw))
+  );
+  const backdrop = backdropEntry ? backdropEntry.emoji : "🌐";
+
+  return { archetype, aura, backdrop };
+}
+
 const RANDOM_EVENT_PROMPT =
   "Throw an unexpected random event into the story right now. Make it surprising and " +
   "dramatic but consistent with the world and characters in the memory files. Do not warn " +
@@ -228,6 +288,7 @@ function StoryMapModal({
   onClose,
   onRandomEvent,
   memory,
+  settings,
   colors,
   insets,
 }: {
@@ -235,6 +296,7 @@ function StoryMapModal({
   onClose: () => void;
   onRandomEvent: () => void;
   memory: Memory;
+  settings: import("@/context/StoryContext").StorySettings | null;
   colors: ReturnType<typeof useColors>;
   insets: { top: number; bottom: number };
 }) {
@@ -242,6 +304,10 @@ function StoryMapModal({
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const botPad = Platform.OS === "web" ? 34 : insets.bottom;
   const events = useMemo(() => parseEvents(memory.events), [memory.events]);
+  const portrait = useMemo(
+    () => settings ? generatePortrait({ name: settings.heroName, genre: settings.genre, tone: settings.tone, setting: settings.setting }) : null,
+    [settings]
+  );
 
   useEffect(() => {
     if (visible && events.length > 0) {
@@ -312,6 +378,83 @@ function StoryMapModal({
           contentContainerStyle={{ padding: 20, paddingBottom: botPad + 24 }}
           showsVerticalScrollIndicator={false}
         >
+          {portrait && settings && (
+            <View
+              style={{
+                marginBottom: 28,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: "#0f0f1e",
+                padding: 18,
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <View
+                style={{
+                  width: 90,
+                  height: 90,
+                  borderRadius: 45,
+                  borderWidth: 2,
+                  borderColor: colors.primary,
+                  backgroundColor: "#1a1200",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  shadowColor: colors.primary,
+                  shadowOpacity: 0.5,
+                  shadowRadius: 12,
+                  elevation: 8,
+                }}
+              >
+                <Text style={{ fontSize: 44, lineHeight: 56 }}>{portrait.archetype}</Text>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                <Text style={{ fontSize: 18 }}>{portrait.aura}</Text>
+                <Text style={{ fontFamily: "Inter_700Bold", fontSize: 18, color: colors.foreground }}>
+                  {settings.heroName}
+                </Text>
+                <Text style={{ fontSize: 18 }}>{portrait.aura}</Text>
+              </View>
+
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    backgroundColor: "#1c1600",
+                    borderRadius: 20,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderWidth: 1,
+                    borderColor: "#3d2e00",
+                  }}
+                >
+                  <Text style={{ fontSize: 12 }}>{portrait.backdrop}</Text>
+                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: colors.mutedForeground }}>
+                    {settings.genre}
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    backgroundColor: "#1c1600",
+                    borderRadius: 20,
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderWidth: 1,
+                    borderColor: "#3d2e00",
+                  }}
+                >
+                  <Text style={{ fontFamily: "Inter_400Regular", fontSize: 12, color: colors.mutedForeground }}>
+                    {settings.tone}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           {events.length === 0 ? (
             <View style={{ alignItems: "center", marginTop: 60 }}>
               <Text style={{ fontSize: 40, marginBottom: 16 }}>🗺️</Text>
@@ -1139,6 +1282,7 @@ export default function StoryScreen() {
         onClose={() => setShowMap(false)}
         onRandomEvent={handleRandomEvent}
         memory={memory}
+        settings={settings}
         colors={colors}
         insets={insets}
       />
